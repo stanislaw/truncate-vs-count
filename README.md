@@ -13,9 +13,8 @@ Truncate all tables with DatabaseCleaner:
 
 ## Script
 ```ruby
-
+# truncate-vs-count-on-mysql.rb
 require 'logger'
-require 'cutter'
 require 'active_record'
 
 require 'benchmark'
