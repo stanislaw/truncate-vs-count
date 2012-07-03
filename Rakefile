@@ -1,6 +1,11 @@
-desc "Run script"
-task :benchmark do
-  system %[bundle exec ruby truncate-vs-count.rb]
+desc "Run MySQL test"
+task :mysql do
+  system %[bundle exec ruby truncate-vs-count-on-mysql.rb]
 end
 
-task :default => :benchmark
+desc "Run MySQL test"
+task :postgres do
+  system %[bundle exec ruby truncate-vs-count-on-postgres.rb]
+end
+
+task :default => :mysql

@@ -9,12 +9,11 @@ ActiveRecord::Base.logger = Logger.new(STDERR)
 puts "Active Record #{ActiveRecord::VERSION::STRING}"
 
 ActiveRecord::Base.establish_connection(
-  :adapter  => 'mysql2',
-  :database => 'truncate_vs_count',
-  :host => 'localhost',
-  :username => 'root',
-  :password => '',
-  :encoding => 'utf8'
+  adapter:  'postgresql',
+  database: 'truncate_vs_count',
+  username: 'postgres',
+  password: '',
+  host:     '127.0.0.1'
 )
 
 require 'database_cleaner'
@@ -33,47 +32,39 @@ class User1 < ActiveRecord::Base
   self.table_name = 'users_1'
 end
 
-10.times { User1.create! }
+16.times { User1.create! }
+
 User1.delete_all
+
+raise "stuck with faster PG procedure - does it exist or not?"
 
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
-      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      if table_count == 0
-        # if we set 'next' right here
-        # it will work EVEN MORE FAST (10ms for 30 tables)!
-        # But problem that then we will not reset AUTO_INCREMENT
-        #
-        # 
-        # next
+      # IF EXISTS(select * from #{table}) THEN
+      # END IF;
 
-        auto_inc = execute <<-AUTO_INCREMENT
-          SELECT Auto_increment 
-          FROM information_schema.tables 
-          WHERE table_name='#{table}'
-        AUTO_INCREMENT
-
-        execute "TRUNCATE TABLE #{table}" if auto_inc.first.first > 1
-
-        # This is slower than just TRUNCATE
-        # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
-      else
-        execute "TRUNCATE TABLE #{table}"
-      end
+      # table_count = execute(<<-TRUNCATE_IF
+      # DO $$DECLARE r record;
+      # BEGIN 
+      #   IF (SELECT last_value from #{table}_id_seq) THEN
+      #   TRUNCATE TABLE #{table};
+      #   END IF;
+      # END$$;
+      # TRUNCATE_IF
+      # )
     end
   end
 end
 
 u = User1.create!
 
-raise "u.id should == 1" if u.id != 1
+# raise u.inspect
+# raise "u.id should == 1" if u.id != 1
 
 just_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
-    tables.each do |table|
-      execute "TRUNCATE TABLE #{table}"
-    end
+    truncate_tables tables
   end
 end
 
