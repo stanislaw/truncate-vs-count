@@ -1,5 +1,5 @@
 require 'logger'
-
+require 'cutter'
 require 'active_record'
 
 require 'benchmark'
@@ -37,7 +37,26 @@ truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
       table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      execute "TRUNCATE #{table}" unless table_count == 0
+      if table_count == 0
+        # if we set 'next' right here
+        # it will work EVEN MORE FAST (10ms for 30 tables)!
+        # But problem that then we will not reset AUTO_INCREMENT
+        #
+        # next
+
+        auto_inc = execute <<-AUTO_INCREMENT
+          SELECT Auto_increment 
+          FROM information_schema.tables 
+          WHERE table_name='#{table}'
+        AUTO_INCREMENT
+
+        execute "TRUNCATE #{table}" if auto_inc.first.first > 1
+
+        # This is slower than just TRUNCATE
+        # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
+      else
+        execute "TRUNCATE #{table}"
+      end
     end
   end
 end
@@ -54,7 +73,7 @@ database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
-puts "Truncate only non-empty tables:\n#{truncation_with_counts}"
+puts "Truncate only non-empty tables (but AUTO_INCREMENT ensured!):\n#{truncation_with_counts}"
 
 puts "Truncate all tables:\n#{just_truncation}"
 
