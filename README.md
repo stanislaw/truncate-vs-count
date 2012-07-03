@@ -80,5 +80,6 @@ puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
 ## Run it
 
 ```ruby
+bundle
 rake
 ```
