@@ -1,5 +1,4 @@
 require 'logger'
-require 'cutter'
 require 'active_record'
 
 require 'benchmark'
