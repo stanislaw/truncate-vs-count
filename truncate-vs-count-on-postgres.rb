@@ -1,3 +1,4 @@
+# truncate-vs-count-on-postgres.rb
 require 'logger'
 require 'active_record'
 
