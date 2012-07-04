@@ -40,13 +40,11 @@ Nrecords = 0
 end
 
 def fill_tables
-  class_eval %{
-    1.upto(N) do |n|
-      1.upto(Nrecords) do |nr|
-        User#{N}.create!
-      end
+  1.upto(N) do |n|
+    1.upto(Nrecords) do |nr|
+      Kernel.const_get(:"User#{n}").create!
     end
-  }
+  end
 end
 
 fill_tables

@@ -5,7 +5,7 @@ require 'active_record'
 require 'benchmark'
 require 'sugar-high/dsl' # I just can't write this ActiveRecord::Base.connection each time!
 
-ActiveRecord::Base.logger = Logger.new(STDERR)
+# ActiveRecord::Base.logger = Logger.new(STDERR)
 
 puts "Active Record #{ActiveRecord::VERSION::STRING}"
 
@@ -24,13 +24,13 @@ require 'database_cleaner'
 
 DatabaseCleaner.strategy = :truncation
 
-N = 30
-Nrecords = 0
+N = 10
+Nrecords = 1
 
 1.upto(N) do |n|
   ActiveRecord::Schema.define do
     create_table :"users_#{n}", :force => true do |t|
-      t.integer :name
+      t.string :name
     end
   end
 
@@ -42,13 +42,11 @@ Nrecords = 0
 end
 
 def fill_tables
-  class_eval %{
-    1.upto(N) do |n|
-      1.upto(Nrecords) do |nr|
-        User#{N}.create!
-      end
+  1.upto(N) do |n|
+    1.upto(Nrecords) do |nr|
+      Kernel.const_get(:"User#{n}").create! :name => 'stanislaw'
     end
-  }
+  end
 end
 
 fill_tables
@@ -76,19 +74,20 @@ fill_tables
 
 truncation_with_counts_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
+    tables_to_truncate = []
     tables.each do |table|
 
       # Anonymous blocks are supported only in PG9.
       # It should be somehow rewritten for older versions.
-      execute(<<-TRUNCATE_IF
-      DO $$DECLARE r record;
-      BEGIN 
-        IF EXISTS(select * from #{table}) THEN
-        TRUNCATE TABLE #{table};
-        END IF;
-      END$$;
-      TRUNCATE_IF
-      )
+      # execute(<<-TRUNCATE_IF
+      # DO $$DECLARE r record;
+      # BEGIN 
+        # IF EXISTS(select * from #{table}) THEN
+        # TRUNCATE TABLE #{table};
+        # END IF;
+      # END$$;
+      # TRUNCATE_IF
+      # )
 
       # This one is good, but works too slow
       # execute(<<-TRUNCATE_IF
@@ -102,7 +101,22 @@ truncation_with_counts_no_reset_ids = Benchmark.measure do
         # SELECT truncate_if();
         # TRUNCATE_IF
       # )
+     
+      # TODO
+      # count = execute(<<-TR
+        # SELECT COUNT(*) FROM #{table}
+      # TR
+      # ).first['count'].to_i
+      
+      # count = execute(<<-TR
+      #   SELECT true FROM #{table};
+      # TR
+      # )
+      # puts count[0]
+      # tables_to_truncate << table if count > 0
     end
+    
+    truncate_tables tables_to_truncate if tables_to_truncate.any?
   end
 end
 
