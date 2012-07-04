@@ -4,10 +4,10 @@
 
 ```text
 MySQL
-Truncate non-empty tables (AUTO_INCREMENT is not ensured)
-  0.010000   0.000000   0.010000 (  0.013020)
 Truncate non-empty tables (AUTO_INCREMENT ensured)
   0.010000   0.000000   0.010000 (  0.035882)
+Truncate non-empty tables (AUTO_INCREMENT is not ensured)
+  0.010000   0.000000   0.010000 (  0.013020)
 Truncate all tables one by one:
   0.000000   0.000000   0.000000 (  1.751737)
 Truncate all tables with DatabaseCleaner:
@@ -79,19 +79,6 @@ def fill_tables
   }
 end
 
-truncation_with_counts_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      if table_count == 0
-        next
-      else
-        execute "TRUNCATE TABLE #{table}"
-      end
-    end
-  end
-end
-
 fill_tables
 
 truncation_with_counts = Benchmark.measure do
@@ -116,6 +103,21 @@ truncation_with_counts = Benchmark.measure do
 
         # This is slower than just TRUNCATE
         # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
+      else
+        execute "TRUNCATE TABLE #{table}"
+      end
+    end
+  end
+end
+
+fill_tables
+
+truncation_with_counts_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+      if table_count == 0
+        next
       else
         execute "TRUNCATE TABLE #{table}"
       end

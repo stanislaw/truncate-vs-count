@@ -49,19 +49,6 @@ def fill_tables
   }
 end
 
-truncation_with_counts_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      if table_count == 0
-        next
-      else
-        execute "TRUNCATE TABLE #{table}"
-      end
-    end
-  end
-end
-
 fill_tables
 
 truncation_with_counts = Benchmark.measure do
@@ -95,6 +82,21 @@ end
 
 fill_tables
 
+truncation_with_counts_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+      if table_count == 0
+        next
+      else
+        execute "TRUNCATE TABLE #{table}"
+      end
+    end
+  end
+end
+
+fill_tables
+
 just_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
@@ -109,9 +111,9 @@ database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
-puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
-
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
+
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
 
 puts "Truncate all tables one by one:\n#{just_truncation}"
 
