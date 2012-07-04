@@ -232,6 +232,9 @@ fill_tables
 truncation_with_counts_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
+      
+      # Anonymous blocks are supported only in PG9.
+      # It should be somehow rewritten for older versions.
       table_count = execute(<<-TRUNCATE_IF
       DO $$DECLARE r record;
       BEGIN 
