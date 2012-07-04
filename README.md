@@ -3,12 +3,14 @@
 ## Results
 
 ```text
-Truncate only non-empty tables (but AUTO_INCREMENT ensured!):
-  0.010000   0.000000   0.010000 (  0.072145)
-Truncate all tables:
-  0.010000   0.000000   0.010000 (  1.235528)
+Truncate non-empty tables (AUTO_INCREMENT is not ensured)
+  0.010000   0.000000   0.010000 (  0.012067)
+Truncate non-empty tables (AUTO_INCREMENT ensured)
+  0.010000   0.000000   0.010000 (  0.067637)
+Truncate all tables one by one:
+  0.030000   0.000000   0.030000 (  1.869774)
 Truncate all tables with DatabaseCleaner:
-  0.010000   0.010000   0.020000 (  1.670583)
+  0.010000   0.000000   0.010000 (  1.208485)
 ```
 
 ## Script
@@ -52,6 +54,19 @@ end
 10.times { User1.create! }
 User1.delete_all
 
+truncation_with_counts_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+      if table_count == 0
+        next
+      else
+        execute "TRUNCATE TABLE #{table}"
+      end
+    end
+  end
+end
+
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
@@ -61,6 +76,7 @@ truncation_with_counts = Benchmark.measure do
         # it will work EVEN MORE FAST (10ms for 30 tables)!
         # But problem that then we will not reset AUTO_INCREMENT
         #
+        # 
         # next
 
         auto_inc = execute <<-AUTO_INCREMENT
@@ -96,9 +112,11 @@ database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
+
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
 
-puts "Truncate all tables:\n#{just_truncation}"
+puts "Truncate all tables one by one:\n#{just_truncation}"
 
 puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
 ```

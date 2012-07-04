@@ -1,3 +1,4 @@
+# truncate-vs-count-on-mysql.rb
 require 'logger'
 require 'active_record'
 
@@ -35,6 +36,19 @@ end
 
 10.times { User1.create! }
 User1.delete_all
+
+truncation_with_counts_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+      if table_count == 0
+        next
+      else
+        execute "TRUNCATE TABLE #{table}"
+      end
+    end
+  end
+end
 
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
@@ -80,6 +94,8 @@ end
 database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
+
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
 
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
 
