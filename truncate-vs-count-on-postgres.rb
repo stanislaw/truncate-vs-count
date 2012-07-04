@@ -8,71 +8,106 @@ ActiveRecord::Base.logger = Logger.new(STDERR)
 
 puts "Active Record #{ActiveRecord::VERSION::STRING}"
 
-ActiveRecord::Base.establish_connection(
+db = { :database => 'truncate_vs_count' }
+
+db_spec = {
   adapter:  'postgresql',
-  database: 'truncate_vs_count',
   username: 'postgres',
   password: '',
   host:     '127.0.0.1'
-)
+}
+
+ActiveRecord::Base.establish_connection(db_spec.merge(db))
 
 require 'database_cleaner'
 
 DatabaseCleaner.strategy = :truncation
 
-(1..30).each do |n|
+N = 30
+Nrecords = 0
+
+1.upto(N) do |n|
   ActiveRecord::Schema.define do
     create_table :"users_#{n}", :force => true do |t|
       t.integer :name
     end
   end
+
+  class_eval %{
+    class ::User#{n} < ActiveRecord::Base
+      self.table_name = 'users_#{n}'
+    end
+  } 
 end
 
-class User1 < ActiveRecord::Base
-  self.table_name = 'users_1'
+def fill_tables
+  class_eval %{
+    1.upto(N) do |n|
+      1.upto(Nrecords) do |nr|
+        User#{N}.create!
+      end
+    end
+  }
 end
 
-16.times { User1.create! }
-
-User1.delete_all
-
-raise "stuck with faster PG procedure - does it exist or not?"
+fill_tables
 
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
+    tables_to_truncate = []
     tables.each do |table|
-      # IF EXISTS(select * from #{table}) THEN
-      # END IF;
+      table_last_value = execute(<<-TRUNCATE_IF
+        SELECT last_value from #{table}_id_seq;
+      TRUNCATE_IF
+      ).first['last_value'].to_i
 
-      # table_count = execute(<<-TRUNCATE_IF
-      # DO $$DECLARE r record;
-      # BEGIN 
-      #   IF (SELECT last_value from #{table}_id_seq) THEN
-      #   TRUNCATE TABLE #{table};
-      #   END IF;
-      # END$$;
-      # TRUNCATE_IF
-      # )
+      if table_last_value > 1
+        # truncate_table table
+        tables_to_truncate << table
+      end
+    end
+
+    execute("TRUNCATE TABLE #{tables_to_truncate.join(',')};") if tables_to_truncate.any?
+  end
+end
+
+fill_tables
+
+truncation_with_counts_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      table_count = execute(<<-TRUNCATE_IF
+      DO $$DECLARE r record;
+      BEGIN 
+        IF EXISTS(select * from #{table}) THEN
+        TRUNCATE TABLE #{table};
+        END IF;
+      END$$;
+      TRUNCATE_IF
+      )
     end
   end
 end
 
-u = User1.create!
-
-# raise u.inspect
-# raise "u.id should == 1" if u.id != 1
+fill_tables
 
 just_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
-    truncate_tables tables
+    tables.each do |t|
+      truncate_table t
+    end
   end
 end
+
+fill_tables
 
 database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
+
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
 
 puts "Truncate all tables:\n#{just_truncation}"
 

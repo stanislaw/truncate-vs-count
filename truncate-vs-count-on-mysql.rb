@@ -22,20 +22,32 @@ require 'database_cleaner'
 
 DatabaseCleaner.strategy = :truncation
 
-(1..30).each do |n|
+N = 30
+Nrecords = 0
+
+1.upto(30).each do |n|
   ActiveRecord::Schema.define do
     create_table :"users_#{n}", :force => true do |t|
       t.integer :name
     end
   end
+
+  class_eval %{
+    class ::User#{n} < ActiveRecord::Base
+      self.table_name = 'users_#{n}'
+    end
+  } 
 end
 
-class User1 < ActiveRecord::Base
-  self.table_name = 'users_1'
+def fill_tables
+  class_eval %{
+    1.upto(N) do |n|
+      1.upto(Nrecords) do |nr|
+        User#{N}.create!
+      end
+    end
+  }
 end
-
-10.times { User1.create! }
-User1.delete_all
 
 truncation_with_counts_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
@@ -49,6 +61,8 @@ truncation_with_counts_no_reset_ids = Benchmark.measure do
     end
   end
 end
+
+fill_tables
 
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
@@ -79,9 +93,7 @@ truncation_with_counts = Benchmark.measure do
   end
 end
 
-u = User1.create!
-
-raise "u.id should == 1" if u.id != 1
+fill_tables
 
 just_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
@@ -90,6 +102,8 @@ just_truncation = Benchmark.measure do
     end
   end
 end
+
+fill_tables
 
 database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
