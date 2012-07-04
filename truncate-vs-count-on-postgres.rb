@@ -80,7 +80,7 @@ truncation_with_counts_no_reset_ids = Benchmark.measure do
 
       # Anonymous blocks are supported only in PG9.
       # It should be somehow rewritten for older versions.
-      table_count = execute(<<-TRUNCATE_IF
+      execute(<<-TRUNCATE_IF
       DO $$DECLARE r record;
       BEGIN 
         IF EXISTS(select * from #{table}) THEN
@@ -89,6 +89,19 @@ truncation_with_counts_no_reset_ids = Benchmark.measure do
       END$$;
       TRUNCATE_IF
       )
+
+      # This one is good, but works too slow
+      # execute(<<-TRUNCATE_IF
+        # CREATE OR REPLACE FUNCTION truncate_if()
+        # RETURNS void AS $$
+        # BEGIN 
+          # IF EXISTS(select * from #{table}) THEN
+          # TRUNCATE TABLE #{table};
+          # END IF;
+        # END$$ LANGUAGE plpgsql;
+        # SELECT truncate_if();
+        # TRUNCATE_IF
+      # )
     end
   end
 end
