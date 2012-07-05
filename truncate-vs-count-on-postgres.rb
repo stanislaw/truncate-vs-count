@@ -118,6 +118,11 @@ fast_truncation_no_reset_ids = Benchmark.measure do
       # TR
       # ).first['count'].to_i
 
+
+      # The following is the fastest I found. I could be even written as 
+      # select exists (select true from #{table} limit 1);
+      # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
+
       at_least_one_row = execute(<<-TR
         SELECT true FROM #{table} LIMIT 1;
       TR
