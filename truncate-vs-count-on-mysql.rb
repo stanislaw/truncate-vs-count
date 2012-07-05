@@ -79,10 +79,10 @@ fast_truncation = Benchmark.measure do
           WHERE table_name='#{table}'
         AUTO_INCREMENT
 
-        truncate_table if auto_inc.first.first > 1
-      else
         # This is slower than just TRUNCATE
         # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
+        truncate_table if auto_inc.first.first > 1
+      else
         truncate_table table
       end
     end
