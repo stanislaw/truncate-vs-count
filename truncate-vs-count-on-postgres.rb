@@ -5,7 +5,7 @@ require 'active_record'
 require 'benchmark'
 require 'sugar-high/dsl' # I just can't write this ActiveRecord::Base.connection each time!
 
-# ActiveRecord::Base.logger = Logger.new(STDERR)
+ActiveRecord::Base.logger = Logger.new(STDERR)
 
 puts "Active Record #{ActiveRecord::VERSION::STRING}"
 
@@ -24,8 +24,14 @@ require 'database_cleaner'
 
 DatabaseCleaner.strategy = :truncation
 
-N = 10
-Nrecords = 1
+N = 30
+Nrecords = 0
+
+with ActiveRecord::Base.connection do
+  tables.each do |table|
+    drop_table table
+  end
+end
 
 1.upto(N) do |n|
   ActiveRecord::Schema.define do
@@ -51,32 +57,36 @@ end
 
 fill_tables
 
-truncation_with_counts = Benchmark.measure do
+fast_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables_to_truncate = []
     tables.each do |table|
-      table_last_value = execute(<<-TRUNCATE_IF
-        SELECT last_value from #{table}_id_seq;
-      TRUNCATE_IF
-      ).first['last_value'].to_i
+      begin
+        # currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a predictable answer whether or not other sessions have executed nextval since the current session did.
 
-      if table_last_value > 1
-        # truncate_table table
+        table_curr_value = execute(<<-CURR_VAL
+          SELECT currval('#{table}_id_seq');
+        CURR_VAL
+        ).first['currval'].to_i
+      rescue ActiveRecord::StatementInvalid # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+        table_curr_value = nil
+      end
+
+      if table_curr_value && table_curr_value > 0
         tables_to_truncate << table
       end
     end
 
-    execute("TRUNCATE TABLE #{tables_to_truncate.join(',')};") if tables_to_truncate.any?
+    truncate_tables tables_to_truncate if tables_to_truncate.any?
   end
 end
 
 fill_tables
 
-truncation_with_counts_no_reset_ids = Benchmark.measure do
+fast_truncation_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables_to_truncate = []
     tables.each do |table|
-
       # Anonymous blocks are supported only in PG9.
       # It should be somehow rewritten for older versions.
       # execute(<<-TRUNCATE_IF
@@ -101,21 +111,21 @@ truncation_with_counts_no_reset_ids = Benchmark.measure do
         # SELECT truncate_if();
         # TRUNCATE_IF
       # )
-     
-      # TODO
+
+      # Maybe this is the fastest?
       # count = execute(<<-TR
-        # SELECT COUNT(*) FROM #{table}
+        # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
       # TR
       # ).first['count'].to_i
-      
-      # count = execute(<<-TR
-      #   SELECT true FROM #{table};
-      # TR
-      # )
-      # puts count[0]
-      # tables_to_truncate << table if count > 0
+
+      at_least_one_row = execute(<<-TR
+        SELECT true FROM #{table} LIMIT 1;
+      TR
+      )
+
+      tables_to_truncate << table if at_least_one_row.any?
     end
-    
+
     truncate_tables tables_to_truncate if tables_to_truncate.any?
   end
 end
@@ -136,9 +146,9 @@ database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
-puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
+puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{fast_truncation}"
 
-puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncation_no_reset_ids}"
 
 puts "Truncate all tables:\n#{just_truncation}"
 

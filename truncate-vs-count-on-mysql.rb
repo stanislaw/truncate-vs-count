@@ -23,7 +23,13 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 0
+Nrecords = 1
+
+with ActiveRecord::Base.connection do
+  tables.each do |table|
+    drop_table table
+  end
+end
 
 1.upto(30).each do |n|
   ActiveRecord::Schema.define do
@@ -53,6 +59,7 @@ truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
       table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+
       if table_count == 0
         # if we set 'next' right here
         # it will work EVEN MORE FAST (10ms for 30 tables)!
