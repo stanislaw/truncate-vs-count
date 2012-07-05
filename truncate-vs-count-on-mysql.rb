@@ -23,7 +23,7 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 1
+Nrecords = 0
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -31,7 +31,7 @@ with ActiveRecord::Base.connection do
   end
 end
 
-1.upto(30).each do |n|
+1.upto(N).each do |n|
   ActiveRecord::Schema.define do
     create_table :"users_#{n}", :force => true do |t|
       t.integer :name
@@ -48,7 +48,7 @@ end
 def fill_tables
   1.upto(N) do |n|
     1.upto(Nrecords) do |nr|
-      Kernel.const_get(:"User#{n}").create!
+      Kernel.const_get(:"User#{n}").create! if n % 2 == 0
     end
   end
 end
@@ -58,10 +58,15 @@ fill_tables
 truncation_with_counts = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
-      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
 
-      if table_count == 0
-        # if we set 'next' right here
+      # This is from where it initially began:
+      # rows_exist = execute("SELECT COUNT(*) FROM #{table}").first.first
+
+      # Seems to be faster:
+      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+
+      if rows_exist == 0
+        # if we set 'next' right here (see next test case below)
         # it will work EVEN MORE FAST (10ms for 30 tables)!
         # But problem that then we will not reset AUTO_INCREMENT
         #
@@ -74,12 +79,11 @@ truncation_with_counts = Benchmark.measure do
           WHERE table_name='#{table}'
         AUTO_INCREMENT
 
-        execute "TRUNCATE TABLE #{table}" if auto_inc.first.first > 1
-
+        truncate_table if auto_inc.first.first > 1
+      else
         # This is slower than just TRUNCATE
         # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
-      else
-        execute "TRUNCATE TABLE #{table}"
+        truncate_table table
       end
     end
   end
@@ -90,12 +94,9 @@ fill_tables
 truncation_with_counts_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
-      table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      if table_count == 0
-        next
-      else
-        execute "TRUNCATE TABLE #{table}"
-      end
+      # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+      truncate_table table if rows_exist == 1
     end
   end
 end
