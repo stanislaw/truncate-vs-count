@@ -48,14 +48,14 @@ end
 def fill_tables
   1.upto(N) do |n|
     1.upto(Nrecords) do |nr|
-      Kernel.const_get(:"User#{n}").create! if n % 2 == 0
+      Kernel.const_get(:"User#{n}").create!
     end
   end
 end
 
 fill_tables
 
-truncation_with_counts = Benchmark.measure do
+fast_truncation = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
 
@@ -91,7 +91,7 @@ end
 
 fill_tables
 
-truncation_with_counts_no_reset_ids = Benchmark.measure do
+fast_truncation_no_reset_ids = Benchmark.measure do
   with ActiveRecord::Base.connection do
     tables.each do |table|
       # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
@@ -117,9 +117,9 @@ database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
 
-puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{truncation_with_counts}"
+puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{fast_truncation}"
 
-puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{truncation_with_counts_no_reset_ids}"
+puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncation_no_reset_ids}"
 
 puts "Truncate all tables one by one:\n#{just_truncation}"
 

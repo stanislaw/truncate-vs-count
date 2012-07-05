@@ -62,13 +62,17 @@ fast_truncation = Benchmark.measure do
     tables_to_truncate = []
     tables.each do |table|
       begin
-        # currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a predictable answer whether or not other sessions have executed nextval since the current session did.
+        # [PG docs] currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a !!!predictable answer whether or not other sessions have executed nextval since the current session did!!!.
 
         table_curr_value = execute(<<-CURR_VAL
           SELECT currval('#{table}_id_seq');
         CURR_VAL
         ).first['currval'].to_i
-      rescue ActiveRecord::StatementInvalid # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+      rescue ActiveRecord::StatementInvalid 
+
+        # Here we are catching PG error, PG doc about states.
+        # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+
         table_curr_value = nil
       end
 
@@ -119,7 +123,7 @@ fast_truncation_no_reset_ids = Benchmark.measure do
       # ).first['count'].to_i
 
 
-      # The following is the fastest I found. I could be even written as 
+      # The following is the fastest I found. It could be even written as 
       # select exists (select true from #{table} limit 1);
       # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
 
