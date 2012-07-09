@@ -1,5 +1,6 @@
+source 'https://rubygems.org'
 gem 'rails'
-
+gem 'ruby-debug19'
 gem 'mysql2'
 gem 'pg'
 
