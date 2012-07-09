@@ -23,7 +23,7 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 0
+NUM_RECORDS = 100
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -47,9 +47,8 @@ end
 
 def fill_tables
   1.upto(N) do |n|
-    1.upto(Nrecords) do |nr|
-      Kernel.const_get(:"User#{n}").create!
-    end
+    values = (1..NUM_RECORDS).map{|i| "(#{i})" }.join(",") 
+    ActiveRecord::Base.connection.execute("INSERT INTO users_#{n} (name) VALUES #{values};")
   end
 end
 
@@ -57,6 +56,8 @@ def benchmark_clean(&block)
   fill_tables
   # warmup
   10.times { with(ActiveRecord::Base.connection, &block); fill_tables}
+  GC.start
+  sleep 1
   Benchmark.measure do
     with ActiveRecord::Base.connection, &block
   end
