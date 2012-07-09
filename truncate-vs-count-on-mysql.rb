@@ -24,6 +24,7 @@ DatabaseCleaner.strategy = :truncation
 
 N = 30
 NUM_RECORDS = 100
+NUM_RUNS = 10
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -59,7 +60,7 @@ def benchmark_clean(&block)
   GC.start
   sleep 1
   Benchmark.measure do
-    with ActiveRecord::Base.connection, &block
+    NUM_RUNS.times { with(ActiveRecord::Base.connection, &block); fill_tables}
   end
 end
 
