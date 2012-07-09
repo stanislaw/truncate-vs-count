@@ -113,6 +113,28 @@ end
 
 fill_tables
 
+just_deletion = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      execute "DELETE FROM #{table}"
+    end
+  end
+end
+
+fill_tables
+
+fast_deletion_no_reset_ids = Benchmark.measure do
+  with ActiveRecord::Base.connection do
+    tables.each do |table|
+      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+      execute("DELETE FROM #{table}") if rows_exist == 1
+    end
+  end
+end
+
+
+fill_tables
+
 database_cleaner = Benchmark.measure do
   DatabaseCleaner.clean
 end
@@ -124,3 +146,7 @@ puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncati
 puts "Truncate all tables one by one:\n#{just_truncation}"
 
 puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
+
+puts "Delete all tables one by one:\n#{just_deletion}"
+
+puts "Delete non-empty tables one by one:\n#{fast_deletion_no_reset_ids}"
