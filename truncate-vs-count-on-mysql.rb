@@ -53,89 +53,80 @@ def fill_tables
   end
 end
 
-fill_tables
+def benchmark_clean(&block)
+  fill_tables
+  # warmup
+  10.times { with(ActiveRecord::Base.connection, &block); fill_tables}
+  Benchmark.measure do
+    with ActiveRecord::Base.connection, &block
+  end
+end
 
-fast_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
 
-      # This is from where it initially began:
-      # rows_exist = execute("SELECT COUNT(*) FROM #{table}").first.first
+fast_truncation = benchmark_clean do
+  tables.each do |table|
+    # This is from where it initially began:
+    # rows_exist = execute("SELECT COUNT(*) FROM #{table}").first.first
 
-      # Seems to be faster:
-      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+    # Seems to be faster:
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
 
-      if rows_exist == 0
-        # if we set 'next' right here (see next test case below)
-        # it will work EVEN MORE FAST (10ms for 30 tables)!
-        # But problem that then we will not reset AUTO_INCREMENT
-        #
-        # 
-        # next
+    if rows_exist == 0
+      # if we set 'next' right here (see next test case below)
+      # it will work EVEN MORE FAST (10ms for 30 tables)!
+      # But problem that then we will not reset AUTO_INCREMENT
+      #
+      # 
+      # next
 
-        auto_inc = execute <<-AUTO_INCREMENT
+      auto_inc = execute <<-AUTO_INCREMENT
           SELECT Auto_increment 
           FROM information_schema.tables 
           WHERE table_name='#{table}'
         AUTO_INCREMENT
 
-        # This is slower than just TRUNCATE
-        # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
-        truncate_table if auto_inc.first.first > 1
-      else
-        truncate_table table
-      end
-    end
-  end
-end
-
-fill_tables
-
-fast_truncation_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
-      truncate_table table if rows_exist == 1
-    end
-  end
-end
-
-fill_tables
-
-just_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      execute "TRUNCATE TABLE #{table}"
-    end
-  end
-end
-
-fill_tables
-
-just_deletion = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      execute "DELETE FROM #{table}"
-    end
-  end
-end
-
-fill_tables
-
-fast_deletion_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
-      execute("DELETE FROM #{table}") if rows_exist == 1
+      # This is slower than just TRUNCATE
+      # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
+      truncate_table if auto_inc.first.first > 1
+    else
+      truncate_table table
     end
   end
 end
 
 
-fill_tables
+fast_truncation_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+    truncate_table table if rows_exist == 1
+  end
+end
 
-database_cleaner = Benchmark.measure do
+
+just_truncation = benchmark_clean do
+  tables.each do |table|
+    execute "TRUNCATE TABLE #{table}"
+  end
+end
+
+
+just_deletion = benchmark_clean do
+  tables.each do |table|
+    execute "DELETE FROM #{table}"
+  end
+end
+
+
+fast_deletion_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+    execute("DELETE FROM #{table}") if rows_exist == 1
+  end
+end
+
+
+database_cleaner = benchmark_clean do
   DatabaseCleaner.clean
 end
 
