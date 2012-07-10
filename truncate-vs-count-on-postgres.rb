@@ -51,9 +51,8 @@ end
 def fill_tables
   1.upto(N) do |n|
     # next if n % 2 == 0
-    1.upto(NUM_RECORDS) do |nr|
-      Kernel.const_get(:"User#{n}").create! :name => 'stanislaw'
-    end
+    values = (1..NUM_RECORDS).map{|i| "(#{i})" }.join(",") 
+    ActiveRecord::Base.connection.execute("INSERT INTO users_#{n} (name) VALUES #{values};") if NUM_RECORDS > 0
   end
 end
 
@@ -72,69 +71,64 @@ def benchmark_clean(&block)
   end
 
   # we get the best real time result of procedure being run for NUM_RUNS times
+
   results.sort{|x, y| x.real <=> y.real}.first
 end
 
 fast_truncation = benchmark_clean do
-  with ActiveRecord::Base.connection do
-    tables_to_truncate = []
-    tables.each do |table|
-      begin
-        # [PG docs] currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a !!!predictable answer whether or not other sessions have executed nextval since the current session did!!!.
+  tables_to_truncate = []
+  tables.each do |table|
+    begin
+      # [PG docs] currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a !!!predictable answer whether or not other sessions have executed nextval since the current session did!!!.
 
-        table_curr_value = execute(<<-CURR_VAL
-          SELECT currval('#{table}_id_seq');
-        CURR_VAL
-        ).first['currval'].to_i
-      rescue ActiveRecord::StatementInvalid 
+      table_curr_value = execute(<<-CURR_VAL
+        SELECT currval('#{table}_id_seq');
+      CURR_VAL
+      ).first['currval'].to_i
+    rescue ActiveRecord::StatementInvalid 
 
-        # Here we are catching PG error, PG doc about states.
-        # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+      # Here we are catching PG error, PG doc about states.
+      # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
 
-        table_curr_value = nil
-      end
-
-      if table_curr_value && table_curr_value > 0
-        tables_to_truncate << table
-      end
+      table_curr_value = nil
     end
 
-    truncate_tables tables_to_truncate if tables_to_truncate.any?
+    if table_curr_value && table_curr_value > 0
+      tables_to_truncate << table
+    end
   end
+
+  truncate_tables tables_to_truncate if tables_to_truncate.any?
 end
 
 fast_truncation_no_reset_ids = benchmark_clean do
-  with ActiveRecord::Base.connection do
-    tables_to_truncate = []
-    tables.each do |table|
-      # Maybe this is the fastest?
-      # count = execute(<<-TR
-        # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
-      # TR
-      # ).first['count'].to_i
+  tables_to_truncate = []
+  tables.each do |table|
+    # Maybe this is the fastest?
+    # count = execute(<<-TR
+      # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
+    # TR
+    # ).first['count'].to_i
 
 
-      # The following is the fastest I found. It could be even written as 
-      # select exists (select true from #{table} limit 1);
-      # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
+    # The following is the fastest I found. It could be even written as 
+    # select exists (select true from #{table} limit 1);
+    # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
 
-      at_least_one_row = execute(<<-TR
-        SELECT true FROM #{table} LIMIT 1;
-      TR
-      )
+    at_least_one_row = execute(<<-TR
+      SELECT true FROM #{table} LIMIT 1;
+    TR
+    )
 
-      tables_to_truncate << table if at_least_one_row.any?
-    end
-
-    truncate_tables tables_to_truncate if tables_to_truncate.any?
+    tables_to_truncate << table if at_least_one_row.any?
   end
+
+  truncate_tables tables_to_truncate if tables_to_truncate.any?
 end
 
 just_truncation = benchmark_clean do
-  with ActiveRecord::Base.connection do
-    tables.each do |t|
-      truncate_table t
-    end
+  tables.each do |t|
+    truncate_table t
   end
 end
 
