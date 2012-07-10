@@ -25,7 +25,8 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 0
+NUM_RECORDS = 10
+NUM_RUNS = 5
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -49,15 +50,32 @@ end
 
 def fill_tables
   1.upto(N) do |n|
-    1.upto(Nrecords) do |nr|
+    # next if n % 2 == 0
+    1.upto(NUM_RECORDS) do |nr|
       Kernel.const_get(:"User#{n}").create! :name => 'stanislaw'
     end
   end
 end
 
-fill_tables
+def benchmark_clean(&block)
+  # I am sure it is not needed here, because we are measuring speed, not memuse
+  # GC.start
+  # sleep 1
 
-fast_truncation = Benchmark.measure do
+  results = []
+
+  NUM_RUNS.times do
+    fill_tables
+    results << Benchmark.measure do
+      with(ActiveRecord::Base.connection, &block)
+    end
+  end
+
+  # we get the best real time result of procedure being run for NUM_RUNS times
+  results.sort{|x, y| x.real <=> y.real}.first
+end
+
+fast_truncation = benchmark_clean do
   with ActiveRecord::Base.connection do
     tables_to_truncate = []
     tables.each do |table|
@@ -85,37 +103,10 @@ fast_truncation = Benchmark.measure do
   end
 end
 
-fill_tables
-
-fast_truncation_no_reset_ids = Benchmark.measure do
+fast_truncation_no_reset_ids = benchmark_clean do
   with ActiveRecord::Base.connection do
     tables_to_truncate = []
     tables.each do |table|
-      # Anonymous blocks are supported only in PG9.
-      # It should be somehow rewritten for older versions.
-      # execute(<<-TRUNCATE_IF
-      # DO $$DECLARE r record;
-      # BEGIN 
-        # IF EXISTS(select * from #{table}) THEN
-        # TRUNCATE TABLE #{table};
-        # END IF;
-      # END$$;
-      # TRUNCATE_IF
-      # )
-
-      # This one is good, but works too slow
-      # execute(<<-TRUNCATE_IF
-        # CREATE OR REPLACE FUNCTION truncate_if()
-        # RETURNS void AS $$
-        # BEGIN 
-          # IF EXISTS(select * from #{table}) THEN
-          # TRUNCATE TABLE #{table};
-          # END IF;
-        # END$$ LANGUAGE plpgsql;
-        # SELECT truncate_if();
-        # TRUNCATE_IF
-      # )
-
       # Maybe this is the fastest?
       # count = execute(<<-TR
         # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
@@ -139,9 +130,7 @@ fast_truncation_no_reset_ids = Benchmark.measure do
   end
 end
 
-fill_tables
-
-just_truncation = Benchmark.measure do
+just_truncation = benchmark_clean do
   with ActiveRecord::Base.connection do
     tables.each do |t|
       truncate_table t
@@ -149,10 +138,25 @@ just_truncation = Benchmark.measure do
   end
 end
 
-fill_tables
-
-database_cleaner = Benchmark.measure do
+database_cleaner = benchmark_clean do
   DatabaseCleaner.clean
+end
+
+just_deletion = benchmark_clean do
+  tables.each do |table|
+    execute "DELETE FROM #{table}"
+  end
+end
+
+fast_deletion_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    at_least_one_row = execute(<<-TR
+      SELECT true FROM #{table} LIMIT 1;
+    TR
+    )
+
+    execute("DELETE FROM #{table}") if at_least_one_row.any?
+  end
 end
 
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{fast_truncation}"
@@ -162,3 +166,7 @@ puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncati
 puts "Truncate all tables:\n#{just_truncation}"
 
 puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
+
+puts "Delete all tables one by one:\n#{just_deletion}"
+
+puts "Delete non-empty tables one by one:\n#{fast_deletion_no_reset_ids}"
