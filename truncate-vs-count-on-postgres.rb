@@ -50,7 +50,7 @@ end
 
 def fill_tables
   1.upto(N) do |n|
-    # next if n % 2 == 0
+    next if n % 2 == 0
     values = (1..NUM_RECORDS).map{|i| "(#{i})" }.join(",") 
     ActiveRecord::Base.connection.execute("INSERT INTO users_#{n} (name) VALUES #{values};") if NUM_RECORDS > 0
   end

@@ -5,23 +5,31 @@
 ```text
 MySQL
 Truncate non-empty tables (AUTO_INCREMENT ensured)
-  0.020000   0.010000   0.030000 (  0.080714)
+  0.020000   0.000000   0.020000 (  0.554784)
 Truncate non-empty tables (AUTO_INCREMENT is not ensured)
-  0.010000   0.000000   0.010000 (  0.018336)
+  0.020000   0.010000   0.030000 (  0.532889)
 Truncate all tables one by one:
-  0.010000   0.000000   0.010000 (  2.153827)
+  0.020000   0.000000   0.020000 (  1.207616)
 Truncate all tables with DatabaseCleaner:
-  0.020000   0.000000   0.020000 (  1.639190)
+  0.060000   0.010000   0.070000 (  1.284068)
+Delete all tables one by one:
+  0.010000   0.000000   0.010000 (  1.173978)
+Delete non-empty tables one by one:
+  0.010000   0.010000   0.020000 (  1.091690)
 
 PostgreSQL
 Truncate non-empty tables (AUTO_INCREMENT ensured)
-  0.010000   0.010000   0.020000 (  0.031100)
+  0.020000   0.010000   0.030000 (  0.558285)
 Truncate non-empty tables (AUTO_INCREMENT is not ensured)
-  0.020000   0.000000   0.020000 (  0.026556)
+  0.010000   0.000000   0.010000 (  0.547050)
 Truncate all tables:
-  0.010000   0.000000   0.010000 (  1.659555)
+  0.010000   0.000000   0.010000 (  1.443918)
 Truncate all tables with DatabaseCleaner:
-  0.000000   0.000000   0.000000 (  1.183262)
+  0.000000   0.000000   0.000000 (  1.094980)
+Delete all tables one by one:
+  0.010000   0.000000   0.010000 (  0.176712)
+Delete non-empty tables one by one:
+  0.010000   0.000000   0.010000 (  0.176628)
 ```
 
 ## Code
@@ -53,7 +61,8 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 0
+NUM_RECORDS = 10
+NUM_RUNS = 5
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -77,75 +86,96 @@ end
 
 def fill_tables
   1.upto(N) do |n|
-    1.upto(Nrecords) do |nr|
-      Kernel.const_get(:"User#{n}").create!
-    end
+    next if n % 2 == 0
+    values = (1..NUM_RECORDS).map{|i| "(#{i})" }.join(",") 
+    ActiveRecord::Base.connection.execute("INSERT INTO users_#{n} (name) VALUES #{values};") if NUM_RECORDS > 0
   end
 end
 
-fill_tables
+def benchmark_clean(&block)
+  # I am sure it is not needed here, because we are measuring speed, not memuse
+  # GC.start
+  # sleep 1
 
-fast_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
+  results = []
 
-      # This is from where it initially began:
-      # rows_exist = execute("SELECT COUNT(*) FROM #{table}").first.first
+  NUM_RUNS.times do
+    fill_tables
+    results << Benchmark.measure do
+      with(ActiveRecord::Base.connection, &block)
+    end
+  end
 
-      # Seems to be faster:
-      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+  # we get the best real time result of procedure being run for NUM_RUNS times
+  results.sort{|x, y| x.real <=> y.real}.first
+end
 
-      if rows_exist == 0
-        # if we set 'next' right here (see next test case below)
-        # it will work EVEN MORE FAST (10ms for 30 tables)!
-        # But problem that then we will not reset AUTO_INCREMENT
-        #
-        # 
-        # next
 
-        auto_inc = execute <<-AUTO_INCREMENT
+fast_truncation = benchmark_clean do
+  tables.each do |table|
+    # This is from where it initially began:
+    # rows_exist = execute("SELECT COUNT(*) FROM #{table}").first.first
+
+    # Seems to be faster:
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+
+    if rows_exist == 0
+      # if we set 'next' right here (see next test case below)
+      # it will work EVEN MORE FAST (10ms for 30 tables)!
+      # But problem that then we will not reset AUTO_INCREMENT
+      #
+      # 
+      # next
+
+      auto_inc = execute <<-AUTO_INCREMENT
           SELECT Auto_increment 
           FROM information_schema.tables 
           WHERE table_name='#{table}'
         AUTO_INCREMENT
 
-        # This is slower than just TRUNCATE
-        # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
-        truncate_table if auto_inc.first.first > 1
-      else
-        truncate_table table
-      end
+      # This is slower than just TRUNCATE
+      # execute "ALTER TABLE #{table} AUTO_INCREMENT = 1" if auto_inc.first.first > 1
+      truncate_table if auto_inc.first.first > 1
+    else
+      truncate_table table
     end
   end
 end
 
-fill_tables
 
-fast_truncation_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
-      rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
-      truncate_table table if rows_exist == 1
-    end
+fast_truncation_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    # table_count = execute("SELECT COUNT(*) FROM #{table}").first.first
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+    truncate_table table if rows_exist == 1
   end
 end
 
-fill_tables
 
-just_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |table|
-      execute "TRUNCATE TABLE #{table}"
-    end
+just_truncation = benchmark_clean do
+  tables.each do |table|
+    execute "TRUNCATE TABLE #{table}"
   end
 end
 
-fill_tables
-
-database_cleaner = Benchmark.measure do
+database_cleaner = benchmark_clean do
   DatabaseCleaner.clean
 end
+
+just_deletion = benchmark_clean do
+  tables.each do |table|
+    execute "DELETE FROM #{table}"
+  end
+end
+
+
+fast_deletion_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    rows_exist = execute("SELECT EXISTS(SELECT 1 FROM #{table} LIMIT 1)").first.first
+    execute("DELETE FROM #{table}") if rows_exist == 1
+  end
+end
+
 
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{fast_truncation}"
 
@@ -154,6 +184,10 @@ puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncati
 puts "Truncate all tables one by one:\n#{just_truncation}"
 
 puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
+
+puts "Delete all tables one by one:\n#{just_deletion}"
+
+puts "Delete non-empty tables one by one:\n#{fast_deletion_no_reset_ids}"
 ```
 
 ### PostgreSQL
@@ -186,7 +220,8 @@ require 'database_cleaner'
 DatabaseCleaner.strategy = :truncation
 
 N = 30
-Nrecords = 0
+NUM_RECORDS = 10
+NUM_RUNS = 5
 
 with ActiveRecord::Base.connection do
   tables.each do |table|
@@ -210,110 +245,107 @@ end
 
 def fill_tables
   1.upto(N) do |n|
-    1.upto(Nrecords) do |nr|
-      Kernel.const_get(:"User#{n}").create! :name => 'stanislaw'
-    end
+    next if n % 2 == 0
+    values = (1..NUM_RECORDS).map{|i| "(#{i})" }.join(",") 
+    ActiveRecord::Base.connection.execute("INSERT INTO users_#{n} (name) VALUES #{values};") if NUM_RECORDS > 0
   end
 end
 
-fill_tables
+def benchmark_clean(&block)
+  # I am sure it is not needed here, because we are measuring speed, not memuse
+  # GC.start
+  # sleep 1
 
-fast_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables_to_truncate = []
-    tables.each do |table|
-      begin
-        # [PG docs] currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a !!!predictable answer whether or not other sessions have executed nextval since the current session did!!!.
+  results = []
 
-        table_curr_value = execute(<<-CURR_VAL
-          SELECT currval('#{table}_id_seq');
-        CURR_VAL
-        ).first['currval'].to_i
-      rescue ActiveRecord::StatementInvalid 
+  NUM_RUNS.times do
+    fill_tables
+    results << Benchmark.measure do
+      with(ActiveRecord::Base.connection, &block)
+    end
+  end
 
-        # Here we are catching PG error, PG doc about states.
-        # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+  # we get the best real time result of procedure being run for NUM_RUNS times
 
-        table_curr_value = nil
-      end
+  results.sort{|x, y| x.real <=> y.real}.first
+end
 
-      if table_curr_value && table_curr_value > 0
-        tables_to_truncate << table
-      end
+fast_truncation = benchmark_clean do
+  tables_to_truncate = []
+  tables.each do |table|
+    begin
+      # [PG docs] currval: return the value most recently obtained by nextval for this sequence in the current session. (An error is reported if nextval has never been called for this sequence in this session.) Notice that because this is returning a session-local value, it gives a !!!predictable answer whether or not other sessions have executed nextval since the current session did!!!.
+
+      table_curr_value = execute(<<-CURR_VAL
+        SELECT currval('#{table}_id_seq');
+      CURR_VAL
+      ).first['currval'].to_i
+    rescue ActiveRecord::StatementInvalid 
+
+      # Here we are catching PG error, PG doc about states.
+      # I don't like that PG gem do not raise its own exceptions. Or maybe I don't know how to handle them?
+
+      table_curr_value = nil
     end
 
-    truncate_tables tables_to_truncate if tables_to_truncate.any?
+    if table_curr_value && table_curr_value > 0
+      tables_to_truncate << table
+    end
+  end
+
+  truncate_tables tables_to_truncate if tables_to_truncate.any?
+end
+
+fast_truncation_no_reset_ids = benchmark_clean do
+  tables_to_truncate = []
+  tables.each do |table|
+    # Maybe this is the fastest?
+    # count = execute(<<-TR
+      # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
+    # TR
+    # ).first['count'].to_i
+
+
+    # The following is the fastest I found. It could be even written as 
+    # select exists (select true from #{table} limit 1);
+    # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
+
+    at_least_one_row = execute(<<-TR
+      SELECT true FROM #{table} LIMIT 1;
+    TR
+    )
+
+    tables_to_truncate << table if at_least_one_row.any?
+  end
+
+  truncate_tables tables_to_truncate if tables_to_truncate.any?
+end
+
+just_truncation = benchmark_clean do
+  tables.each do |t|
+    truncate_table t
   end
 end
 
-fill_tables
-
-fast_truncation_no_reset_ids = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables_to_truncate = []
-    tables.each do |table|
-      # Anonymous blocks are supported only in PG9.
-      # It should be somehow rewritten for older versions.
-      # execute(<<-TRUNCATE_IF
-      # DO $$DECLARE r record;
-      # BEGIN 
-        # IF EXISTS(select * from #{table}) THEN
-        # TRUNCATE TABLE #{table};
-        # END IF;
-      # END$$;
-      # TRUNCATE_IF
-      # )
-
-      # This one is good, but works too slow
-      # execute(<<-TRUNCATE_IF
-        # CREATE OR REPLACE FUNCTION truncate_if()
-        # RETURNS void AS $$
-        # BEGIN 
-          # IF EXISTS(select * from #{table}) THEN
-          # TRUNCATE TABLE #{table};
-          # END IF;
-        # END$$ LANGUAGE plpgsql;
-        # SELECT truncate_if();
-        # TRUNCATE_IF
-      # )
-
-      # Maybe this is the fastest?
-      # count = execute(<<-TR
-        # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
-      # TR
-      # ).first['count'].to_i
-
-
-      # The following is the fastest I found. It could be even written as 
-      # select exists (select true from #{table} limit 1);
-      # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
-
-      at_least_one_row = execute(<<-TR
-        SELECT true FROM #{table} LIMIT 1;
-      TR
-      )
-
-      tables_to_truncate << table if at_least_one_row.any?
-    end
-
-    truncate_tables tables_to_truncate if tables_to_truncate.any?
-  end
-end
-
-fill_tables
-
-just_truncation = Benchmark.measure do
-  with ActiveRecord::Base.connection do
-    tables.each do |t|
-      truncate_table t
-    end
-  end
-end
-
-fill_tables
-
-database_cleaner = Benchmark.measure do
+database_cleaner = benchmark_clean do
   DatabaseCleaner.clean
+end
+
+just_deletion = benchmark_clean do
+  tables.each do |table|
+    execute "DELETE FROM #{table}"
+  end
+end
+
+fast_deletion_no_reset_ids = benchmark_clean do
+  tables.each do |table|
+    at_least_one_row = execute(<<-TR
+      SELECT true FROM #{table} LIMIT 1;
+    TR
+    )
+
+    execute("DELETE FROM #{table}") if at_least_one_row.any?
+  end
 end
 
 puts "Truncate non-empty tables (AUTO_INCREMENT ensured)\n#{fast_truncation}"
@@ -323,6 +355,10 @@ puts "Truncate non-empty tables (AUTO_INCREMENT is not ensured)\n#{fast_truncati
 puts "Truncate all tables:\n#{just_truncation}"
 
 puts "Truncate all tables with DatabaseCleaner:\n#{database_cleaner}"
+
+puts "Delete all tables one by one:\n#{just_deletion}"
+
+puts "Delete non-empty tables one by one:\n#{fast_deletion_no_reset_ids}"
 ```
 
 ## Run it
