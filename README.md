@@ -299,17 +299,8 @@ end
 fast_truncation_no_reset_ids = benchmark_clean do
   tables_to_truncate = []
   tables.each do |table|
-    # Maybe this is the fastest?
-    # count = execute(<<-TR
-      # SELECT COUNT(*) FROM #{table} WHERE EXISTS(SELECT * FROM #{table})
-    # TR
-    # ).first['count'].to_i
 
-
-    # The following is the fastest I found. It could be even written as 
-    # select exists (select true from #{table} limit 1);
-    # But I don't like to parse result PG gem gives. like {"?column?"=>"t"}
-
+    # The following is the fastest I found. 
     at_least_one_row = execute(<<-TR
       SELECT true FROM #{table} LIMIT 1;
     TR
