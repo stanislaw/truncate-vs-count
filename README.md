@@ -1,5 +1,7 @@
 # Truncate vs Count
 
+This has been merged in ```database_cleaner``` as ```:pre_count``` option. See issues [126](https://github.com/bmabey/database_cleaner/issues/126) and [127](https://github.com/bmabey/database_cleaner/pull/127).
+
 ## Results
 
 ```text
